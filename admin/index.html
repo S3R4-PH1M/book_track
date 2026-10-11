@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Book Tracker Admin</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+  label { display: block; margin-top: 8px; font-size: 13px; }
+  input, select { width: 100%; padding: 6px; margin-top: 2px; box-sizing: border-box; }
+  button { margin-top: 12px; padding: 8px 14px; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { border: 1px solid #ddd; padding: 6px; font-size: 13px; text-align: left; }
+  .error { color: #b00020; font-size: 13px; }
+  #app { display: none; }
+</style>
+</head>
+<body>
+  <h1>Book Tracker Admin</h1>
+  <p>This page is for managing book entries only — keep it private, don't embed it anywhere.</p>
+
+  <section id="login">
+    <h2>Sign in</h2>
+    <label>Email <input id="email" type="email" /></label>
+    <label>Password <input id="password" type="password" /></label>
+    <button id="login-btn" type="button">Sign in</button>
+    <p class="error" id="login-error"></p>
+  </section>
+
+  <section id="app">
+    <button id="logout-btn" type="button">Sign out</button>
+
+    <h2>Add / edit book</h2>
+    <form id="book-form">
+      <input type="hidden" id="book-id" />
+      <label>ISBN <input id="isbn" required /></label>
+      <label>Status
+        <select id="status">
+          <option value="want_to_read">Want to read</option>
+          <option value="reading" selected>Reading</option>
+          <option value="finished">Finished</option>
+        </select>
+      </label>
+      <label>Current page <input id="current_page" type="number" min="0" /></label>
+      <label>Total pages <input id="total_pages" type="number" min="0" /></label>
+      <label>Progress % (auto-fills from pages, editable) <input id="progress_percent" type="number" min="0" max="100" value="0" /></label>
+      <label>Rating (0-5) <input id="rating" type="number" min="0" max="5" /></label>
+      <label>Sort order <input id="sort_order" type="number" value="0" /></label>
+      <button type="submit">Save</button>
+      <button type="button" id="cancel-edit">Cancel edit</button>
+      <p class="error" id="form-error"></p>
+    </form>
+
+    <h2>Books</h2>
+    <table>
+      <thead>
+        <tr><th>ISBN</th><th>Status</th><th>Progress</th><th>Rating</th><th></th></tr>
+      </thead>
+      <tbody id="book-rows"></tbody>
+    </table>
+  </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

@@ -92,9 +92,11 @@ class BookTrackerWidget extends HTMLElement {
   _renderCarouselChrome(carousel) {
     const showArrows = this._books.length > 1;
     carousel.innerHTML = `
-      ${showArrows ? '<button class="bt-arrow bt-arrow-prev" id="prev" aria-label="Previous book">&#8249;</button>' : ''}
-      <div class="bt-viewport" id="viewport"></div>
-      ${showArrows ? '<button class="bt-arrow bt-arrow-next" id="next" aria-label="Next book">&#8250;</button>' : ''}
+      <div class="bt-stage">
+        ${showArrows ? '<button class="bt-arrow bt-arrow-prev" id="prev" aria-label="Previous book">&#8249;</button>' : ''}
+        <div class="bt-viewport" id="viewport"></div>
+        ${showArrows ? '<button class="bt-arrow bt-arrow-next" id="next" aria-label="Next book">&#8250;</button>' : ''}
+      </div>
       ${showArrows ? '<div class="bt-counter" id="counter"></div>' : ''}
     `;
 
@@ -107,12 +109,13 @@ class BookTrackerWidget extends HTMLElement {
   _step(direction) {
     const len = this._books.length;
     this._index = (this._index + direction + len) % len;
-    this._renderCurrentCard();
+    this._renderCurrentCard(direction);
   }
 
-  _renderCurrentCard() {
+  _renderCurrentCard(direction) {
     const viewport = this._root.getElementById('viewport');
-    viewport.innerHTML = this._cardHtml(this._books[this._index]);
+    const slideClass = direction === 1 ? ' bt-slide-next' : direction === -1 ? ' bt-slide-prev' : '';
+    viewport.innerHTML = this._cardHtml(this._books[this._index], slideClass);
 
     const counter = this._root.getElementById('counter');
     if (counter) counter.textContent = `${this._index + 1} / ${this._books.length}`;
@@ -123,7 +126,7 @@ class BookTrackerWidget extends HTMLElement {
     if (carousel) carousel.innerHTML = `<div class="bt-error">${this._escape(message)}</div>`;
   }
 
-  _cardHtml(book) {
+  _cardHtml(book, slideClass = '') {
     const rating = Number.isInteger(book.rating) ? book.rating : null;
     const stars = rating !== null ? '★'.repeat(rating) + '☆'.repeat(5 - rating) : '';
     const cover = book.cover
@@ -135,7 +138,7 @@ class BookTrackerWidget extends HTMLElement {
     const statusLabel = (book.status || '').replace('_', ' ');
 
     return `
-      <div class="bt-card">
+      <div class="bt-card${slideClass}">
         ${cover}
         <div class="bt-info">
           <div class="bt-title">${this._escape(book.title)}</div>
@@ -162,44 +165,123 @@ class BookTrackerWidget extends HTMLElement {
 
   _css() {
     return `
-      :host { display: block; font-family: system-ui, -apple-system, sans-serif; max-width: 320px; }
-      .bt-carousel { position: relative; }
+      @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+      :host {
+        --bg: #0A0A0A;
+        --fg: #c3e28d;
+        --fg-dim: rgba(195, 226, 141, 0.6);
+        --line: rgba(195, 226, 141, 0.22);
+        --line-strong: rgba(195, 226, 141, 0.4);
+        --font-display: "Bebas Neue", Impact, "Arial Narrow", sans-serif;
+        --font-body: Helvetica, Arial, sans-serif;
+        --font-mono: "IBM Plex Mono", ui-monospace, "Courier New", monospace;
+        display: block;
+        max-width: 320px;
+        font-family: var(--font-body);
+        background: var(--bg);
+        color: var(--fg);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      * { box-sizing: border-box; }
+      .bt-stage { display: flex; align-items: stretch; gap: 0.5rem; padding: 0.75rem 0.75rem 0; }
+      .bt-viewport { flex: 1; min-width: 0; overflow: hidden; }
       .bt-arrow {
-        position: absolute;
-        top: 42px;
-        transform: translateY(-50%);
-        width: 30px;
-        height: 30px;
-        border: none;
-        border-radius: 50%;
-        background: rgba(0, 0, 0, 0.35);
-        color: #fff;
-        font-size: 18px;
+        flex: 0 0 28px;
+        width: 28px;
+        border: 1px solid var(--line-strong);
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--font-mono);
+        font-size: 16px;
         line-height: 1;
+        padding: 0;
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        z-index: 1;
-        transition: background 0.15s ease;
+        transition: background 0.15s ease, color 0.15s ease;
       }
-      .bt-arrow:hover { background: rgba(0, 0, 0, 0.6); }
-      .bt-arrow-prev { left: 4px; }
-      .bt-arrow-next { right: 4px; }
-      .bt-counter { text-align: center; font-size: 11px; color: #888; margin-top: 6px; }
-      .bt-card { display: flex; gap: 12px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
-      .bt-cover { width: 56px; height: 84px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: #eee; }
-      .bt-cover-placeholder { display: block; }
-      .bt-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
-      .bt-title { font-weight: 600; font-size: 14px; }
-      .bt-author { font-size: 12px; color: #666; }
-      .bt-status { font-size: 11px; text-transform: capitalize; color: #888; }
-      progress { width: 100%; height: 6px; }
-      .bt-percent { font-size: 11px; color: #666; }
-      .bt-pages { font-size: 11px; color: #888; }
-      .bt-rating { font-size: 13px; color: #e8b923; }
-      .bt-loading, .bt-empty, .bt-error { padding: 16px; font-size: 13px; color: #666; }
-      .bt-error { color: #b00020; }
+      .bt-arrow:hover { background: var(--fg); color: var(--bg); }
+      .bt-arrow:active { transform: translateY(1px); }
+      .bt-counter {
+        text-align: center;
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--fg-dim);
+        margin-top: 0.5rem;
+      }
+      .bt-card { display: flex; gap: 0.75rem; padding: 1rem; border: 1px solid var(--line-strong); }
+      .bt-slide-next { animation: bt-slide-in-right 0.5s ease-out; }
+      .bt-slide-prev { animation: bt-slide-in-left 0.5s ease-out; }
+      @keyframes bt-slide-in-right {
+        from { transform: translateX(60px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+      @keyframes bt-slide-in-left {
+        from { transform: translateX(-60px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .bt-slide-next, .bt-slide-prev { animation: none; }
+      }
+      .bt-cover { width: 56px; height: 84px; object-fit: cover; border: 1px solid var(--line-strong); flex-shrink: 0; background: var(--bg); }
+      .bt-cover-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-style: dashed;
+        text-align: center;
+        padding: 0.25rem;
+      }
+      .bt-cover-placeholder::after {
+        content: "NO COVER";
+        font-family: var(--font-mono);
+        font-size: 0.55rem;
+        letter-spacing: 0.06em;
+        color: var(--fg-dim);
+      }
+      .bt-info { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; flex: 1; }
+      .bt-title {
+        font-family: var(--font-display);
+        font-weight: 400;
+        font-size: 1.2rem;
+        line-height: 1.15;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--fg);
+      }
+      .bt-author { font-family: var(--font-body); font-size: 0.75rem; color: var(--fg-dim); }
+      .bt-status {
+        display: inline-block;
+        width: fit-content;
+        font-family: var(--font-mono);
+        font-size: 0.65rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--fg-dim);
+        border: 1px solid var(--line);
+        padding: 0.15rem 0.4rem;
+      }
+      progress { width: 100%; height: 6px; appearance: none; -webkit-appearance: none; border: 1px solid var(--line); background: var(--bg); }
+      progress::-webkit-progress-bar { background: var(--bg); }
+      progress::-webkit-progress-value { background: var(--fg); }
+      progress::-moz-progress-bar { background: var(--fg); }
+      .bt-percent { font-family: var(--font-mono); font-size: 0.65rem; color: var(--fg-dim); }
+      .bt-pages { font-family: var(--font-mono); font-size: 0.65rem; color: var(--fg-dim); }
+      .bt-rating { font-size: 0.85rem; letter-spacing: 0.05em; color: #e8b923; }
+      .bt-loading, .bt-empty, .bt-error {
+        padding: 1rem;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--fg-dim);
+      }
+      .bt-error { color: #ff4d4d; }
     `;
   }
 }
