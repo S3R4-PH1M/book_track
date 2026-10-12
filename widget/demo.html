@@ -7,14 +7,21 @@
 </head>
 <body>
   <h1>Book Tracker Widget Demo</h1>
-  <p>Replace the attributes below with your own Supabase project URL and anon key (see ../README.md).</p>
+  <p>Reads your Supabase project URL and publishable key from <code>../config.js</code>
+    (copy <code>config.example.js</code> to create it — see ../README.md).</p>
 
-  <book-tracker-widget
-    project-url="https://YOUR-PROJECT.supabase.co"
-    anon-key="YOUR_PUBLIC_ANON_KEY"
-    limit="20">
-  </book-tracker-widget>
+  <div id="widget-slot"></div>
 
+  <script src="../config.js"></script>
   <script src="book-tracker-widget.js"></script>
+  <script>
+    // On a real site you'd write the attributes directly in the <book-tracker-widget> tag - Use only for testing widget
+    const config = window.BOOK_TRACKER_CONFIG || {};
+    const widget = document.createElement('book-tracker-widget');
+    widget.setAttribute('project-url', config.supabaseUrl || '');
+    widget.setAttribute('anon-key', config.supabaseKey || '');
+    widget.setAttribute('limit', '20');
+    document.getElementById('widget-slot').append(widget);
+  </script>
 </body>
 </html>
