@@ -15,6 +15,7 @@ class BookTrackerWidget extends HTMLElement {
   }
 
   connectedCallback() {
+    // Moving the element around the DOM reconnects it; the shadow root and data survive.
     if (this._root) return;
     this._root = this.attachShadow({ mode: 'open' });
     BookTrackerWidget._loadFonts();
@@ -29,6 +30,8 @@ class BookTrackerWidget extends HTMLElement {
     this._reloadTimer = setTimeout(() => this._load(), 0);
   }
 
+  // @font-face inside a shadow root is ignored by Chrome and Safari, so the font
+  // stylesheet goes in the page <head> (once, however many widgets there are).
   static _loadFonts() {
     if (document.getElementById('book-tracker-widget-fonts')) return;
     const link = document.createElement('link');
@@ -51,6 +54,7 @@ class BookTrackerWidget extends HTMLElement {
     return Math.min(Math.max(Number.isNaN(n) ? 20 : n, 1), 100);
   }
 
+  // e.g. status="reading,finished"; unknown values are ignored.
   get statuses() {
     return (this.getAttribute('status') || '')
       .split(',')
@@ -61,7 +65,8 @@ class BookTrackerWidget extends HTMLElement {
   get _endpoint() {
     const params = new URLSearchParams({
       select: BT_COLUMNS,
-      order: 'sort_order.asc,created_at.desc',
+      // Current reads first, so a limited fetch always includes them; then most recently finished.
+      order: 'status_rank.asc,sort_order.asc,finished_on.desc.nullslast,created_at.desc',
       limit: String(this.limit)
     });
     if (this.statuses.length) params.set('status', `in.(${this.statuses.join(',')})`);
@@ -81,7 +86,8 @@ class BookTrackerWidget extends HTMLElement {
     if (cached && Date.now() - cached.savedAt < BT_CACHE_TTL_MS) return;
 
     try {
-      // Read the column-limited public view
+      // Read the column-limited public view, and name the columns explicitly, so nothing
+      // private added to the books table later can leak through the public anon key.
       const response = await fetch(this._endpoint, {
         headers: { apikey: this.anonKey, Authorization: `Bearer ${this.anonKey}` }
       });
@@ -96,7 +102,8 @@ class BookTrackerWidget extends HTMLElement {
     }
   }
 
-  // Titles and covers are stored in the database by the admin page else, look them all up on Open Library in one batched request.
+  // Titles and covers are stored in the database by the admin page. For rows saved before
+  // that (or by another tool), look them all up on Open Library in one batched request.
   async _fillMissingMetadata(rows) {
     const missing = rows.filter((row) => row.isbn_13 && (!row.title || !row.cover_url));
     let meta = {};
@@ -141,6 +148,7 @@ class BookTrackerWidget extends HTMLElement {
     }
   }
 
+
   _writeCache(key, books) {
     try {
       sessionStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), books }));
@@ -184,6 +192,16 @@ class BookTrackerWidget extends HTMLElement {
       <div class="bt-sr-only" id="announce" aria-live="polite"></div>
     `;
 
+    // Every card is rendered up front and stacked in one grid cell, so the viewport is
+    // always as tall as the tallest book and the page doesn't jump when stepping through.
+    const viewport = this._root.getElementById('viewport');
+    viewport.innerHTML = this._books.map((book) => this._cardHtml(book)).join('');
+    for (const img of viewport.querySelectorAll('img')) {
+      img.addEventListener('error', () => {
+        img.outerHTML = '<div class="bt-cover bt-cover-placeholder"></div>';
+      });
+    }
+
     if (!showArrows) return;
     this._root.getElementById('prev').addEventListener('click', () => this._step(-1));
     this._root.getElementById('next').addEventListener('click', () => this._step(1));
@@ -197,7 +215,6 @@ class BookTrackerWidget extends HTMLElement {
     });
 
     // Swipe on touch screens (vertical scrolling still works: touch-action: pan-y).
-    const viewport = this._root.getElementById('viewport');
     let startX = null;
     viewport.addEventListener('pointerdown', (event) => {
       if (event.pointerType !== 'mouse') startX = event.clientX;
@@ -220,33 +237,23 @@ class BookTrackerWidget extends HTMLElement {
   }
 
   _renderCurrentCard(direction) {
-    const viewport = this._root.getElementById('viewport');
-    const slideClass = direction === 1 ? ' bt-slide-next' : direction === -1 ? ' bt-slide-prev' : '';
-    const book = this._books[this._index];
-    viewport.innerHTML = this._cardHtml(book, slideClass);
-
-    const img = viewport.querySelector('img');
-    if (img) {
-      img.addEventListener('error', () => {
-        img.outerHTML = '<div class="bt-cover bt-cover-placeholder"></div>';
-      });
+    const cards = this._root.getElementById('viewport').children;
+    for (const [i, card] of [...cards].entries()) {
+      card.classList.toggle('bt-active', i === this._index);
+      card.classList.remove('bt-slide-next', 'bt-slide-prev');
+    }
+    if (direction) {
+      const active = cards[this._index];
+      void active.offsetWidth; // restart the slide animation when stepping quickly
+      active.classList.add(direction === 1 ? 'bt-slide-next' : 'bt-slide-prev');
     }
 
+    const book = this._books[this._index];
     const counter = this._root.getElementById('counter');
     if (counter) counter.textContent = `${this._index + 1} / ${this._books.length}`;
     if (direction) {
       this._root.getElementById('announce').textContent =
         `Book ${this._index + 1} of ${this._books.length}: ${book.title} by ${book.author}`;
-    }
-    this._preloadNeighbours();
-  }
-
-  _preloadNeighbours() {
-    const len = this._books.length;
-    if (len < 2) return;
-    for (const offset of [1, -1]) {
-      const url = this._books[(this._index + offset + len) % len].cover_url;
-      if (url) new Image().src = url;
     }
   }
 
@@ -273,7 +280,7 @@ class BookTrackerWidget extends HTMLElement {
     return date.toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
   }
 
-  _cardHtml(book, slideClass = '') {
+  _cardHtml(book) {
     const rating = Number.isInteger(book.rating) ? book.rating : null;
     const stars = rating !== null ? '★'.repeat(rating) + '☆'.repeat(5 - rating) : '';
     const cover = book.cover_url
@@ -290,14 +297,16 @@ class BookTrackerWidget extends HTMLElement {
     const showProgress = book.status !== 'want_to_read';
 
     return `
-      <div class="bt-card${slideClass}">
+      <div class="bt-card">
         ${cover}
         <div class="bt-info">
           <div class="bt-title">${this._escape(book.title)}</div>
           <div class="bt-author">${this._escape(book.author)}</div>
           <div class="bt-status">${this._escape(statusLabel)}</div>
-          ${showProgress ? `<progress max="100" value="${progress}" aria-label="Progress">${progress}%</progress>
-          <span class="bt-percent">${progress}%</span>` : ''}
+          ${showProgress ? `<div class="bt-progress">
+            <progress max="100" value="${progress}" aria-label="Progress">${progress}%</progress>
+            <span class="bt-percent">${progress}%</span>
+          </div>` : ''}
           ${showProgress ? pages : ''}
           ${finished}
           ${rating !== null ? `<div class="bt-rating" aria-label="Rated ${rating} out of 5">${stars}</div>` : ''}
@@ -332,7 +341,7 @@ class BookTrackerWidget extends HTMLElement {
         --font-body: var(--bt-font-body, Helvetica, Arial, sans-serif);
         --font-mono: var(--bt-font-mono, "IBM Plex Mono", ui-monospace, "Courier New", monospace);
         display: block;
-        max-width: var(--bt-max-width, 320px);
+        max-width: var(--bt-max-width, 440px);
         font-family: var(--font-body);
         background: var(--bg);
         color: var(--fg);
@@ -346,7 +355,14 @@ class BookTrackerWidget extends HTMLElement {
       }
       .bt-stage { display: flex; align-items: stretch; gap: 0.5rem; padding: 0.75rem 0.75rem 0; }
       .bt-stage:focus-visible { outline: 1px solid var(--fg); outline-offset: -1px; }
-      .bt-viewport { flex: 1; min-width: 0; overflow: hidden; touch-action: pan-y; }
+      .bt-viewport {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        touch-action: pan-y;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr); /* cards shrink to fit instead of overflowing */
+      }
       .bt-arrow {
         flex: 0 0 28px;
         width: 28px;
@@ -375,7 +391,15 @@ class BookTrackerWidget extends HTMLElement {
         color: var(--fg-dim);
         margin-top: 0.5rem;
       }
-      .bt-card { display: flex; gap: 0.75rem; padding: 1rem; border: 1px solid var(--line-strong); }
+      .bt-card {
+        display: flex;
+        gap: 0.75rem;
+        padding: 1rem;
+        border: 1px solid var(--line-strong);
+        grid-area: 1 / 1;
+        visibility: hidden;
+      }
+      .bt-card.bt-active { visibility: visible; }
       .bt-slide-next { animation: bt-slide-in-right 0.5s ease-out; }
       .bt-slide-prev { animation: bt-slide-in-left 0.5s ease-out; }
       @keyframes bt-slide-in-right {
@@ -427,8 +451,19 @@ class BookTrackerWidget extends HTMLElement {
         border: 1px solid var(--line);
         padding: 0.15rem 0.4rem;
       }
-      progress { width: 100%; height: 6px; appearance: none; -webkit-appearance: none; border: 1px solid var(--line); background: var(--bg); }
-      progress::-webkit-progress-bar { background: var(--bg); }
+      /* Short bar with its value beside it, and a visible track, so it reads as a gauge rather than a divider. */
+      .bt-progress { display: flex; align-items: center; gap: 0.5rem; }
+      progress {
+        flex: 1;
+        min-width: 0;
+        max-width: 180px;
+        height: 8px;
+        appearance: none;
+        -webkit-appearance: none;
+        border: 1px solid var(--line-strong);
+        background: var(--line);
+      }
+      progress::-webkit-progress-bar { background: var(--line); }
       progress::-webkit-progress-value { background: var(--fg); }
       progress::-moz-progress-bar { background: var(--fg); }
       .bt-percent, .bt-pages, .bt-finished { font-family: var(--font-mono); font-size: 0.65rem; color: var(--fg-dim); }
