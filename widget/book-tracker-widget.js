@@ -148,6 +148,7 @@ class BookTrackerWidget extends HTMLElement {
     }
   }
 
+
   _writeCache(key, books) {
     try {
       sessionStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), books }));
